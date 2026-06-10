@@ -22,30 +22,34 @@
 - **APIキーは必ずサーバー側（API Route）でだけ使う。** クライアント(ブラウザ)のコードに書くと漏れる。
 - 画面はモバイル幅で作り、ブラウザのスマホ表示で画面録画する。
 
+> **フォルダ構成の前提**: Next.jsアプリは `HATOBA/web/` の中に作成済み（フォルダ名「HATOBA」は大文字を含みnpm名に使えないため、小文字の `web` サブフォルダにした）。
+> 以降のパスはすべて `web/` 起点。`npm` 系コマンドは `cd web` してから実行する。設計ドキュメントは `HATOBA/docs/`。
+
 ---
 
 ## Phase 0: 環境とAPIキー（所要 半日 / 担当: あなた、相手は横で同じ手順を踏む）
 
 1. **Node.js をインストール**（LTS版, 20以上）: https://nodejs.org
    確認: `node -v` / `npm -v`
-2. **Next.jsプロジェクト作成**（このHATOBAフォルダ内に作る）:
+2. **Next.jsプロジェクト作成**（HATOBA直下で実行 → 小文字の `web` フォルダに作る）:
    ```powershell
-   npx create-next-app@latest . --typescript --tailwind --app --eslint --src-dir --no-import-alias
+   npx create-next-app@latest web --typescript --tailwind --app --eslint --src-dir --no-import-alias
    ```
 3. **Gemini APIキーを取得**:
    - https://aistudio.google.com にGoogleアカウントでログイン
    - 「Get API key」→ APIキーを発行（無料枠・クレカ不要）
-4. **キーを環境変数に置く**（`.env.local` を作成。Gitに上げない＝.gitignoreに既に入る）:
+4. **キーを環境変数に置く**（`web/.env.local` を作成。Gitに上げない＝web/.gitignoreに既に入る）:
    ```
    GEMINI_API_KEY=ここに発行したキー
    ```
-5. **Gemini SDK を入れる**:
+5. **Gemini SDK を入れる**（`web` の中で実行）:
    ```powershell
+   cd web
    npm install @google/genai
    ```
-6. 起動確認: `npm run dev` → http://localhost:3000 が開けばOK。
+6. 起動確認: `web` の中で `npm run dev` → http://localhost:3000 が開けばOK。
 
-**完了の定義**: ローカルでNext.jsが起動し、APIキーが`.env.local`にある。
+**完了の定義**: ローカルでNext.jsが起動し、APIキーが`web/.env.local`にある。
 
 ---
 
@@ -56,10 +60,10 @@
 1. **プロンプトを設計**（`docs/prompt.md` に文面を置く）:
    - 入力: 食材の写真
    - 出力: メニュー候補3件（メニュー名 / 主な材料 / アレルギー / 想定価格）をJSONで
-2. **API Route を作る**: `src/app/api/suggest-menu/route.ts`
+2. **API Route を作る**: `web/src/app/api/suggest-menu/route.ts`
    - 画像(base64)を受け取り → Geminiに渡す → JSONを返す（下に骨組み）
 3. **UIなしで動作確認**: テスト用の食材写真1枚を用意し、簡単なテストページかcurlで叩いて、JSONが返るのを確認。
-4. **最小の撮影/アップロード画面**を作る: `src/app/store/page.tsx`
+4. **最小の撮影/アップロード画面**を作る: `web/src/app/store/page.tsx`
    - `<input type="file" accept="image/*" capture="environment">`（スマホだとカメラが開く）
    - アップロード → /api/suggest-menu を呼ぶ → 結果を画面に表示
 
@@ -67,7 +71,7 @@
 
 ### API Route の骨組み（叩き台）
 ```ts
-// src/app/api/suggest-menu/route.ts
+// web/src/app/api/suggest-menu/route.ts
 import { GoogleGenAI } from "@google/genai";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
@@ -103,11 +107,11 @@ price(想定価格 円, 300〜500) を含めてください。`;
 
 AIは絡めず、固定データ＋ボタン遷移で「動いて見える」画面を作る。絵コンテのシーン3〜6に対応。
 
-- [ ] 店舗側: メニュー公開画面（候補から1つ選んで「公開」） `src/app/store/publish`
-- [ ] 学生側: 今日のメニュー・残数一覧 `src/app/student/menu`
-- [ ] 学生側: 席バーコードスキャン→注文確認 `src/app/student/order`
-- [ ] 学生側: HOP風決済完了 `src/app/student/pay`
-- データは `src/data/*.ts` にダミーで持つ（相手が中身を差し替える担当）
+- [ ] 店舗側: メニュー公開画面（候補から1つ選んで「公開」） `web/src/app/store/publish`
+- [ ] 学生側: 今日のメニュー・残数一覧 `web/src/app/student/menu`
+- [ ] 学生側: 席バーコードスキャン→注文確認 `web/src/app/student/order`
+- [ ] 学生側: HOP風決済完了 `web/src/app/student/pay`
+- データは `web/src/data/*.ts` にダミーで持つ（相手が中身を差し替える担当）
 
 ---
 
