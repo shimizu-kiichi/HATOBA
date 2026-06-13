@@ -1,36 +1,89 @@
-// 1. 外部の道具箱から、Gemini APIを動かすためのメインの部品を読み込みます
-import { GoogleGenAI } from "@google/genai";
+// 機能②：確定した値引き食材リストを受け取り、メニュー候補3件を提案する。
+// 設計・プロンプト: src/prompts/prompt-menu.md
 
-// 2. 秘密の鍵（APIキー）を使って、いつでもAIを呼び出せるマシーン「ai」を組み立てます
+import { GoogleGenAI, Type } from "@google/genai";
+import { loadPromptBody } from "@/lib/prompts";
+
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
-// 3. 画面から「メニューを提案して！」という通信（POST）が来たら、ここからの処理をスタートします
+const responseSchema = {
+  type: Type.ARRAY, // メニュー候補3件の配列
+  items: {
+    type: Type.OBJECT,
+    properties: {
+      menuName: { type: Type.STRING },
+      ingredients: {
+        type: Type.ARRAY, // 使うリスト食材
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            name: { type: Type.STRING }, // 入力リストの productName と一致
+            usageRatio: { type: Type.NUMBER }, // パッケージ全体のうち1食で使う割合(0〜1)
+          },
+          required: ["name", "usageRatio"],
+          propertyOrdering: ["name", "usageRatio"],
+        },
+      },
+      recipe: { type: Type.ARRAY, items: { type: Type.STRING } }, // 調理手順(1ステップ1要素)
+      allergens: { type: Type.ARRAY, items: { type: Type.STRING } }, // 28品目から該当
+      cookingMinutes: { type: Type.INTEGER },
+    },
+    required: ["menuName", "ingredients", "recipe", "allergens", "cookingMinutes"],
+    propertyOrdering: ["menuName", "ingredients", "recipe", "allergens", "cookingMinutes"],
+  },
+};
+
+// 画面から受け取る食材リストの1件（機能①の出力を店員が確認・修正したもの）
+type InputIngredient = {
+  productName: string;
+  discountedPrice: number | null;
+  unit: string | null;
+  quantity: number;
+};
+
+// AIが返すメニュー1件
+type MenuFromAI = {
+  menuName: string;
+  ingredients: { name: string; usageRatio: number }[];
+  recipe: string[];
+  allergens: string[];
+  cookingMinutes: number;
+};
+
 export async function POST(req: Request) {
+  const { ingredients } = (await req.json()) as { ingredients?: InputIngredient[] };
+  if (!Array.isArray(ingredients) || ingredients.length === 0) {
+    return Response.json({ error: "ingredients(食材リスト)が必要です" }, { status: 400 });
+  }
 
-  // 4. 画面（表）から送られてきたデータ（req）の中から、「ingredients（食材リスト）」だけを抜き出して箱に入れます
-  const { ingredients } = await req.json();
+  // プロンプト本文の末尾に、実際の食材リスト(JSON)を差し込む
+  const promptBody = await loadPromptBody("prompt-menu.md");
+  const prompt = `${promptBody}\n\n${JSON.stringify(ingredients, null, 2)}`;
 
-  // 5. AIへの手紙（プロンプト）を作ります。${...} を使うことで、上の4番で受け取った食材リストを文字として自動で埋め込んでいます
-  const prompt = `【ここに現在考えているプロンプトの文面を入れてください】
-（例: あなたは平和堂の総菜開発者です。以下の食材リストの中からいくつか、またはすべてを使って、学生向けのメニューを提案してください...など）
-
-▼ 登録された食材リスト:
-${JSON.stringify(ingredients, null, 2)}
-`;
-
-  // 6. 組み立てたマシーン「ai」に、使う頭脳（モデル）と、作った手紙（プロンプト）を手渡して、AIが考え終わるのを待ちます（await）
   const res = await ai.models.generateContent({
     model: "gemini-2.5-flash",
-    contents: [{
-      role: "user",
-      parts: [
-        { text: prompt } // ここが文字だけになりました！
-      ],
-    }],
-    // 7. AIに対して「普通の雑談じゃなくて、メニュー名や価格が整理されたJSON形式で返事をしてね」と指定します
-    config: { responseMimeType: "application/json" },
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    config: { responseMimeType: "application/json", responseSchema },
   });
 
-  // 8. AIから返ってきた返事（res.text）を、プログラムが扱いやすいデータに翻訳（parse）して、画面側に「はい、これがメニューだよ！」と送り返します
-  return Response.json(JSON.parse(res.text));
+  const menus = JSON.parse(res.text ?? "[]") as MenuFromAI[];
+
+  // 金額はAIに計算させず、ここで算出する（食材名で割引後価格を引いて積み上げる）
+  const priceByName = new Map<string, number>();
+  for (const ing of ingredients) {
+    if (ing.discountedPrice !== null) priceByName.set(ing.productName, ing.discountedPrice);
+  }
+
+  const result = menus.map((menu) => {
+    const ingredientCost = menu.ingredients.reduce((sum, item) => {
+      const unitPrice = priceByName.get(item.name) ?? 0; // リストに無ければ0扱い
+      return sum + Math.round(unitPrice * item.usageRatio);
+    }, 0);
+    const laborCost = Math.round((menu.cookingMinutes / 60) * 1000); // 時給1,000円
+    const profit = Math.round((ingredientCost + laborCost) * 0.2); // 利益20%
+    const price = ingredientCost + laborCost + profit;
+    return { ...menu, ingredientCost, laborCost, profit, price };
+  });
+
+  return Response.json(result);
 }
