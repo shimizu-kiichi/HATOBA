@@ -13,7 +13,7 @@
 ## 出力の形（route.ts の responseSchema で固定する）
 1商品ぶんのオブジェクトを返す:
 - `productName`: 文字列（商品名。一般的な食材名）
-- `originalPrice`: 整数 または null（元値・円）
+- `originalPrice`: 整数 または null（元値・**税込価格**・円）
 - `discountPercent`: 整数 または null（割引率・%。割引なしは 0）
 - `unit`: 文字列 または null（内容量。例「300g」「4本入」）
 - `quantity`: 整数（パッケージ内の個数。基本は 1）
@@ -35,7 +35,7 @@ discountedPrice = round(originalPrice * (100 - discountPercent) / 100)
 # 読み取りルール
 - 値札と割引シールの文字をできる範囲で正確に読み取る
 - productName: 商品名。できるだけ一般的な食材名で書く（パッケージ表記が何であれ「鶏もも肉」「キャベツ」など）
-- originalPrice: 値札に書かれた元の価格（円）
+- originalPrice: 値札に書かれた元の価格を「税込価格（円）」で読み取る。本体価格（税抜）と税込価格が併記されている場合は、必ず税込価格の方を採用する（割引はこの税込価格に対して掛ける）
 - discountPercent: 割引率を % の整数で表す（「2割引」「20%OFF」→ 20、「半額」→ 50）。割引がなければ 0
   ※ 割引後価格そのものは計算しない（システム側で originalPrice と discountPercent から算出する）
 - unit: 内容量の表記（例「300g」「1パック」「4本入」）。読めなければ null
