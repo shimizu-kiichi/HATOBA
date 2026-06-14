@@ -7,6 +7,7 @@ export type ExtractedProduct = {
     discountPercent: number | null;
     unit: string | null;
     quantity: number; // パッケージ内の個数
+    allergens: string[]; // 商品自体のアレルゲン（28品目から該当。ラベル表示か商品から推測）
 };
 
 // 機能①の最終出力（route.ts が割引後価格を付与）。
@@ -22,6 +23,7 @@ export type InputIngredient = {
     unit: string | null;
     quantity: number;
     packCount: number; // 在庫点数
+    allergens: string[]; // この食材のアレルゲン（機能②がメニューのアレルゲン合算に使う）
 };
 
 // 機能②：AIが返すメニュー1件（route.ts が食数・金額を付与する前）

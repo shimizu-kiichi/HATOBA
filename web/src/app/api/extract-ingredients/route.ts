@@ -15,9 +15,10 @@ const responseSchema = {
     discountPercent: { type: Type.INTEGER, nullable: true },
     unit: { type: Type.STRING, nullable: true },
     quantity: { type: Type.INTEGER },
+    allergens: { type: Type.ARRAY, items: { type: Type.STRING } }, // 28品目から該当（ラベル表示か商品から推測）
   },
-  required: ["productName", "originalPrice", "discountPercent", "unit", "quantity"],
-  propertyOrdering: ["productName", "originalPrice", "discountPercent", "unit", "quantity"],
+  required: ["productName", "originalPrice", "discountPercent", "unit", "quantity", "allergens"],
+  propertyOrdering: ["productName", "originalPrice", "discountPercent", "unit", "quantity", "allergens"],
 };
 
 export async function POST(req: Request) {
