@@ -10,7 +10,8 @@ const promptsDir = path.join(process.cwd(), "src", "prompts");
 // 例: loadPromptBody("prompt-extract.md")
 export async function loadPromptBody(fileName: string): Promise<string> {
   const md = await readFile(path.join(promptsDir, fileName), "utf-8");
-  const match = md.match(/```text\n([\s\S]*?)\n```/);
+  // より柔軟な正規表現：開始の後の改行は最大1つ、終了の前の改行は最大1つ
+  const match = md.match(/```text\n?([\s\S]*?)\n?```/);
   if (!match) {
     throw new Error(`プロンプト本文(\`\`\`text ブロック)が見つかりません: ${fileName}`);
   }

@@ -54,22 +54,42 @@ type MenuFromAI = {
 };
 
 export async function POST(req: Request) {
-  const { ingredients } = (await req.json()) as { ingredients?: InputIngredient[] };
-  if (!Array.isArray(ingredients) || ingredients.length === 0) {
-    return Response.json({ error: "ingredients(食材リスト)が必要です" }, { status: 400 });
-  }
+  try {
+    const { ingredients } = (await req.json()) as { ingredients?: InputIngredient[] };
+    if (!Array.isArray(ingredients) || ingredients.length === 0) {
+      return Response.json({ error: "ingredients(食材リスト)が必要です" }, { status: 400 });
+    }
 
-  // プロンプト本文の末尾に、実際の食材リスト(JSON)を差し込む
-  const promptBody = await loadPromptBody("prompt-menu.md");
-  const prompt = `${promptBody}\n\n${JSON.stringify(ingredients, null, 2)}`;
+    // プロンプト本文の末尾に、実際の食材リスト(JSON)を差し込む
+    const promptBody = await loadPromptBody("prompt-menu.md");
+    const prompt = `${promptBody}\n\n${JSON.stringify(ingredients, null, 2)}`;
 
-  const res = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-    config: { responseMimeType: "application/json", responseSchema },
-  });
+    const res = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      config: { responseMimeType: "application/json", responseSchema },
+    });
 
-  const menus = JSON.parse(res.text ?? "[]") as MenuFromAI[];
+    // デバッグ出力
+    console.log("Gemini response text:", res.text);
+
+    if (!res.text) {
+      return Response.json(
+        { error: "Gemini からの応答が空です。APIキーやクォータを確認してください。" },
+        { status: 500 }
+      );
+    }
+
+    let menus: MenuFromAI[];
+    try {
+      menus = JSON.parse(res.text) as MenuFromAI[];
+    } catch (parseErr) {
+      console.error("JSON parse error:", parseErr, "Response:", res.text);
+      return Response.json(
+        { error: `Gemini の応答が JSON ではありません: ${res.text.substring(0, 200)}` },
+        { status: 500 }
+      );
+    }
 
   // 食数・金額はAIに計算させず、ここで算出する（食材名で割引後価格・在庫点数を引く）
   const priceByName = new Map<string, number>();
@@ -104,5 +124,12 @@ export async function POST(req: Request) {
     return { ...menu, servings, totalCookingMinutes, ingredientCost, laborCost, profit, price };
   });
 
-  return Response.json(result);
+    return Response.json(result);
+  } catch (err) {
+    console.error("API error:", err);
+    return Response.json(
+      { error: `サーバーエラー: ${err instanceof Error ? err.message : String(err)}` },
+      { status: 500 }
+    );
+  }
 }
