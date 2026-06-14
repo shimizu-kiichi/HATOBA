@@ -26,10 +26,11 @@ const responseSchema = {
       },
       recipe: { type: Type.ARRAY, items: { type: Type.STRING } }, // 調理手順(1ステップ1要素)
       allergens: { type: Type.ARRAY, items: { type: Type.STRING } }, // 28品目から該当
-      cookingMinutes: { type: Type.INTEGER },
+      prepMinutes: { type: Type.INTEGER }, // 食数によらず1回だけの下ごしらえ時間
+      cookMinutesPerServing: { type: Type.INTEGER }, // 1食を追加で仕上げる時間
     },
-    required: ["menuName", "ingredients", "recipe", "allergens", "cookingMinutes"],
-    propertyOrdering: ["menuName", "ingredients", "recipe", "allergens", "cookingMinutes"],
+    required: ["menuName", "ingredients", "recipe", "allergens", "prepMinutes", "cookMinutesPerServing"],
+    propertyOrdering: ["menuName", "ingredients", "recipe", "allergens", "prepMinutes", "cookMinutesPerServing"],
   },
 };
 
@@ -39,6 +40,7 @@ type InputIngredient = {
   discountedPrice: number | null;
   unit: string | null;
   quantity: number;
+  packCount: number; // 在庫点数（店がこの商品を何パック持っているか）
 };
 
 // AIが返すメニュー1件
@@ -47,7 +49,8 @@ type MenuFromAI = {
   ingredients: { name: string; usageRatio: number }[];
   recipe: string[];
   allergens: string[];
-  cookingMinutes: number;
+  prepMinutes: number; // 食数によらず1回だけの下ごしらえ時間
+  cookMinutesPerServing: number; // 1食を追加で仕上げる時間
 };
 
 export async function POST(req: Request) {
@@ -68,21 +71,37 @@ export async function POST(req: Request) {
 
   const menus = JSON.parse(res.text ?? "[]") as MenuFromAI[];
 
-  // 金額はAIに計算させず、ここで算出する（食材名で割引後価格を引いて積み上げる）
+  // 食数・金額はAIに計算させず、ここで算出する（食材名で割引後価格・在庫点数を引く）
   const priceByName = new Map<string, number>();
+  const packCountByName = new Map<string, number>();
   for (const ing of ingredients) {
     if (ing.discountedPrice !== null) priceByName.set(ing.productName, ing.discountedPrice);
+    packCountByName.set(ing.productName, ing.packCount);
   }
 
   const result = menus.map((menu) => {
+    // 1食ぶんの材料費（割引後価格 × 使用割合）
     const ingredientCost = menu.ingredients.reduce((sum, item) => {
       const unitPrice = priceByName.get(item.name) ?? 0; // リストに無ければ0扱い
       return sum + Math.round(unitPrice * item.usageRatio);
     }, 0);
-    const laborCost = Math.round((menu.cookingMinutes / 60) * 1000); // 時給1,000円
+
+    // 在庫全体で何食作れるか（使うリスト食材のボトルネックで決まる）
+    const servingsPerIngredient = menu.ingredients
+      .filter((item) => item.usageRatio > 0 && packCountByName.has(item.name))
+      .map((item) => Math.floor((packCountByName.get(item.name) ?? 0) / item.usageRatio));
+    const servings =
+      servingsPerIngredient.length > 0 ? Math.max(1, Math.min(...servingsPerIngredient)) : 1;
+
+    // 食数を考慮した調理時間（下ごしらえは1回、あとは1食ごと）
+    const totalCookingMinutes = menu.prepMinutes + menu.cookMinutesPerServing * servings;
+    const perServingMinutes = totalCookingMinutes / servings;
+
+    // 価格は1食あたり（まとめ調理ぶん、1食の人件費は安くなる）
+    const laborCost = Math.round((perServingMinutes / 60) * 1000); // 時給1,000円・1食あたり
     const profit = Math.round((ingredientCost + laborCost) * 0.2); // 利益20%
     const price = ingredientCost + laborCost + profit;
-    return { ...menu, ingredientCost, laborCost, profit, price };
+    return { ...menu, servings, totalCookingMinutes, ingredientCost, laborCost, profit, price };
   });
 
   return Response.json(result);

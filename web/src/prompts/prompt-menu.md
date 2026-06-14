@@ -12,6 +12,7 @@
 - `discountedPrice`: 割引後価格（円）。パッケージ全体の値段
 - `unit`: 内容量（例「300g」「1パック」「4本入」）
 - `quantity`: パッケージ内の個数
+- `packCount`: 在庫点数（その商品を店が何パック／何点持っているか。1以上の整数）
 
 ## 出力の形（route.ts の responseSchema で固定する）
 各メニューは次の項目を持つ（これを3件、配列で返す）:
@@ -21,16 +22,26 @@
   - `usageRatio`: 数値（0〜1。そのパッケージ全体のうち1食で使う割合）
 - `recipe`: 文字列の配列（調理手順を1ステップ1要素で）
 - `allergens`: 文字列の配列（28品目から該当を選ぶ。なければ空配列）
-- `cookingMinutes`: 整数（分・1食の調理時間）
+- `prepMinutes`: 整数（分。食数に関係なく1回だけかかる下ごしらえ・段取りの時間）
+- `cookMinutesPerServing`: 整数（分。1食を追加で仕上げるのにかかる時間）
 
 最終価格 `price` は出力に含めない（下の価格計算のとおり route.ts で算出して付け足す）。
 
-## 価格計算（route.ts 側で実施。AIには計算させない）
-入力リストの discountedPrice を name で引いて、使用分の費用を積み上げる:
+## 何食作れるか・価格計算（route.ts 側で実施。AIには計算させない）
+在庫点数(packCount)と usageRatio から「在庫全体で何食作れるか(servings)」を出し、
+調理時間と価格は servings を踏まえて算出する:
 ```
+// 在庫全体で何食作れるか（使うリスト食材のボトルネックで決まる）
+servings            = max(1, min over used i of floor(packCount(name_i) / usageRatio_i))
+
+// 食数を考慮した調理時間（下ごしらえは1回、あとは1食ごと）
+totalCookingMinutes = prepMinutes + cookMinutesPerServing * servings
+perServingMinutes   = totalCookingMinutes / servings
+
+// 価格は1食あたり（まとめ調理ぶん、1食の人件費は安くなる）
 usedCost(i)    = round(discountedPrice(name_i) * usageRatio_i)  // 食材iの使用分の費用
 ingredientCost = Σ usedCost(i)                                  // 材料費（調味料は含まない）
-laborCost      = round(cookingMinutes / 60 * 1000)              // 人件費（時給1,000円）
+laborCost      = round(perServingMinutes / 60 * 1000)           // 人件費（時給1,000円・1食あたり）
 profit         = round((ingredientCost + laborCost) * 0.2)      // 利益（20%）
 price          = ingredientCost + laborCost + profit
 ```
@@ -49,6 +60,9 @@ price          = ingredientCost + laborCost + profit
   （料金はシステムが discountedPrice × usageRatio で計算するので、AIは金額を計算しない）。
 - 調味料: 塩・油・味噌・醤油・だし・砂糖など。店に常備されており、自由に使ってよい。料金には一切含めない。
 - リスト食材と調味料以外は使わない（ご飯・麺などの主食は、リストに無ければ使えない）。
+
+各リスト食材には在庫点数(packCount)も付く。「在庫全体で何食作れるか」はシステムが
+packCount と usageRatio から計算するので、AIはこの計算をしない（点数の多い食材を主役に選ぶ判断には使ってよい）。
 
 # メニューの条件
 - リスト食材から相性の良いものを選んで使う（リストを全部使い切る必要はない）
@@ -69,7 +83,10 @@ price          = ingredientCost + laborCost + profit
   該当がなければ空配列にする。
   - 義務8品目: えび・かに・くるみ・小麦・そば・卵・乳・落花生
   - 推奨20品目: アーモンド・あわび・いか・いくら・オレンジ・カシューナッツ・キウイフルーツ・牛肉・ごま・さけ・さば・大豆・鶏肉・バナナ・豚肉・まつたけ・もも・やまいも・りんご・ゼラチン
-- cookingMinutes: 店で1食を調理する現実的な時間（分・整数）
+- prepMinutes: 食数に関係なく1回だけかかる下ごしらえ・段取りの時間（分・整数）。
+  例: 野菜を全部切る・タレを作る・湯を沸かす。おおよその目安でよい。
+- cookMinutesPerServing: 1食を追加で仕上げるのにかかる時間（分・整数）。
+  例: 1人前を焼いて盛り付ける。おおよその目安でよい。
 
 # 入力（値引き食材リスト・JSON）
 （この下に route.ts が実データを差し込む）
