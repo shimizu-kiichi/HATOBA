@@ -3,6 +3,7 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 import { loadPromptBody } from "@/lib/prompts";
+import type { ExtractedProduct } from "@/lib/types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
@@ -17,14 +18,6 @@ const responseSchema = {
   },
   required: ["productName", "originalPrice", "discountPercent", "unit", "quantity"],
   propertyOrdering: ["productName", "originalPrice", "discountPercent", "unit", "quantity"],
-};
-
-type ExtractedProduct = {
-  productName: string;
-  originalPrice: number | null;
-  discountPercent: number | null;
-  unit: string | null;
-  quantity: number;
 };
 
 export async function POST(req: Request) {

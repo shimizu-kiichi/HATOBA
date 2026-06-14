@@ -3,6 +3,7 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 import { loadPromptBody } from "@/lib/prompts";
+import type { InputIngredient, MenuFromAI } from "@/lib/types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
@@ -32,25 +33,6 @@ const responseSchema = {
     required: ["menuName", "ingredients", "recipe", "allergens", "prepMinutes", "cookMinutesPerServing"],
     propertyOrdering: ["menuName", "ingredients", "recipe", "allergens", "prepMinutes", "cookMinutesPerServing"],
   },
-};
-
-// 画面から受け取る食材リストの1件（機能①の出力を店員が確認・修正したもの）
-type InputIngredient = {
-  productName: string;
-  discountedPrice: number | null;
-  unit: string | null;
-  quantity: number;
-  packCount: number; // 在庫点数（店がこの商品を何パック持っているか）
-};
-
-// AIが返すメニュー1件
-type MenuFromAI = {
-  menuName: string;
-  ingredients: { name: string; usageRatio: number }[];
-  recipe: string[];
-  allergens: string[];
-  prepMinutes: number; // 食数によらず1回だけの下ごしらえ時間
-  cookMinutesPerServing: number; // 1食を追加で仕上げる時間
 };
 
 export async function POST(req: Request) {
