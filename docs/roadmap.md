@@ -1,138 +1,104 @@
-# HATOBA 開発ロードマップ（Next.js + Gemini 無料枠）
+# HATOBA 開発ロードマップ（Next.js + Gemini）
 
-> 方針: **6/20 までに「シーン2＝食材写真→AIメニュー提案」を動かす**ことを最優先。
-> AIコアを先に単体で動かし、モック画面は後から被せる。
+> 方針: **6/20 までに「写真 → 食材抽出 → AIメニュー提案」の一連が実機スマホで動く**ことを最優先。
+> AIコアを先に動かし、モック画面は後から被せる。
 
-## 技術構成（全体像）
+## サービスの流れ（全体像）
 
 ```
-[ブラウザ(スマホ表示)]
-   食材写真をアップロード
-        │
+[スマホ：Vercelの公開URLを開く]
+  店員が値引き商品を1点ずつ撮影
+        │ 画像(base64)
         ▼
-[Next.js API Route /api/suggest-menu]  ← サーバー側。ここでGeminiを呼ぶ
-        │  画像(base64) + プロンプト
+[/api/extract-ingredients]  ← サーバー側でGeminiを呼ぶ（機能①）
+        │ AI出力: { productName, originalPrice, discountPercent, unit, quantity }
+        │ route.ts が discountedPrice を計算して付与
         ▼
-[Gemini API (gemini-2.5-flash, 無料枠)]
-        │  メニュー候補をJSONで返す
+[確認画面] 店員が個数・価格などを手で修正 → 食材リスト確定
+        │ 食材リスト(JSON)
         ▼
-[結果画面] メニュー名・材料・アレルギー・価格を表示
+[/api/suggest-menu]  ← サーバー側でGeminiを呼ぶ（機能②）
+        │ AI出力: メニュー候補3件
+        │   { menuName, ingredients[{ name, usageRatio }], recipe, allergens, cookingMinutes }
+        │ route.ts が ingredientCost・人件費・利益・price を計算して付与
+        ▼
+[結果画面] 候補3件を表示 → 店が1つ選んで「公開」
 ```
 
-- **APIキーは必ずサーバー側（API Route）でだけ使う。** クライアント(ブラウザ)のコードに書くと漏れる。
-- 画面はモバイル幅で作り、ブラウザのスマホ表示で画面録画する。
+- **APIキーは必ずサーバー側（API Route）でだけ使う。** クライアントに書くと漏れる。`web/.env.local` の `GEMINI_API_KEY`。
+- **金額の計算はAIにさせず route.ts で行う**（AIは「何をどれだけ使うか」などの判断のみ。算術はコード）。
 
-> **フォルダ構成の前提**: Next.jsアプリは `HATOBA/web/` の中に作成済み（フォルダ名「HATOBA」は大文字を含みnpm名に使えないため、小文字の `web` サブフォルダにした）。
-> 以降のパスはすべて `web/` 起点。`npm` 系コマンドは `cd web` してから実行する。設計ドキュメントは `HATOBA/docs/`。
+## 技術構成
 
----
+- フロント/サーバー: **Next.js 16（App Router, TypeScript, Tailwind, `src/` 構成）**。`HATOBA/web/` の中。
+- 生成AI: **Google Gemini（`gemini-2.5-flash`）/ `@google/genai`**。出力の形は各 route.ts の `responseSchema`（`Type` enum）で固定する。
+- プロンプト本文は **`web/src/prompts/*.md` の ` ```text ` ブロックを正本**とし、`src/lib/prompts.ts` の `loadPromptBody()` で実行時に読み込む（route.ts に文面を重複させない。md を書き換えれば次のリクエストから反映）。
+- **動かし方・デモ: 実機スマホでアプリを操作する様子を実写撮影するのが必須。** Wi-Fi は使えない前提なので **Vercel にデプロイし、スマホはモバイル回線で公開URLを開く**（HTTPSなのでカメラもそのまま動く）。`next.config.ts` の `outputFileTracingIncludes` でプロンプト md を同梱済み。
 
-## Phase 0: 環境とAPIキー（所要 半日 / 担当: あなた、相手は横で同じ手順を踏む）
+## 「本物 / モック」の切り分け
 
-1. **Node.js をインストール**（LTS版, 20以上）: https://nodejs.org
-   確認: `node -v` / `npm -v`
-2. **Next.jsプロジェクト作成**（HATOBA直下で実行 → 小文字の `web` フォルダに作る）:
-   ```powershell
-   npx create-next-app@latest web --typescript --tailwind --app --eslint --src-dir --no-import-alias
-   ```
-3. **Gemini APIキーを取得**:
-   - https://aistudio.google.com にGoogleアカウントでログイン
-   - 「Get API key」→ APIキーを発行（無料枠・クレカ不要）
-4. **キーを環境変数に置く**（`web/.env.local` を作成。Gitに上げない＝web/.gitignoreに既に入る）:
-   ```
-   GEMINI_API_KEY=ここに発行したキー
-   ```
-5. **Gemini SDK を入れる**（`web` の中で実行）:
-   ```powershell
-   cd web
-   npm install @google/genai
-   ```
-6. 起動確認: `web` の中で `npm run dev` → http://localhost:3000 が開けばOK。
+- **本物にする = AIコアの2機能（機能① 写真→食材、機能② 食材→メニュー）。** ここだけ実際にGeminiを動かす。
+- それ以外（決済・席バーコード注文・残数表示など）はモック（固定データ＋ボタン遷移）でOK。動画で動いて見えれば十分。
+- アレルギー表示・価格はAIコアの出力をそのまま使う（副次的だが本物のデータが出る）。
 
-**完了の定義**: ローカルでNext.jsが起動し、APIキーが`web/.env.local`にある。
+## フォルダ構成の前提
+
+- Next.js アプリは `HATOBA/web/` の中（フォルダ名「HATOBA」は npm 名に使えないため小文字の `web` サブフォルダ）。`npm` 系コマンドは `cd web` してから実行。
+- 設計ドキュメント（このロードマップ・絵コンテ）は `HATOBA/docs/`。
+- **プロンプト本文は `HATOBA/web/src/prompts/`**（アプリと一緒にデプロイされる場所）。
 
 ---
 
-## Phase 1: AIコア単体（最優先・6/20の目標 / 担当: あなた＋AI支援）
+## Phase 0: 環境（済）
 
-> UIを作る前に、まず「画像→メニューJSON」だけを動かす。
+- Node.js（LTS）/ `create-next-app` で `web/` 作成 / Gemini APIキー取得 → `web/.env.local` の `GEMINI_API_KEY` / `npm install @google/genai`。
+- `cd web && npm run dev` で起動確認。
 
-1. **プロンプトを設計**（`docs/prompt.md` に文面を置く）:
-   - 入力: 食材の写真
-   - 出力: メニュー候補3件（メニュー名 / 主な材料 / アレルギー / 想定価格）をJSONで
-2. **API Route を作る**: `web/src/app/api/suggest-menu/route.ts`
-   - 画像(base64)を受け取り → Geminiに渡す → JSONを返す（下に骨組み）
-3. **UIなしで動作確認**: テスト用の食材写真1枚を用意し、簡単なテストページかcurlで叩いて、JSONが返るのを確認。
-4. **最小の撮影/アップロード画面**を作る: `web/src/app/store/page.tsx`
-   - `<input type="file" accept="image/*" capture="environment">`（スマホだとカメラが開く）
-   - アップロード → /api/suggest-menu を呼ぶ → 結果を画面に表示
+## Phase 1: AIコア2機能（最優先・6/20の目標）
 
-**完了の定義（＝6/20の合格ライン）**: スマホ表示の画面で食材写真を選ぶと、AIがメニュー候補3件を返して画面に出る。
+> UIを作る前に、まず「画像→食材JSON」と「食材リスト→メニューJSON」を動かす。
 
-### API Route の骨組み（叩き台）
-```ts
-// web/src/app/api/suggest-menu/route.ts
-import { GoogleGenAI } from "@google/genai";
+- [x] プロンプト本文を `web/src/prompts/prompt-extract.md` / `prompt-menu.md` に整備。
+- [x] プロンプト読み込みヘルパー `src/lib/prompts.ts`（`loadPromptBody`）。
+- [x] 機能① `web/src/app/api/extract-ingredients/route.ts`：写真(base64)→商品情報JSON。`discountedPrice` は route.ts で算出。
+- [ ] 機能② `web/src/app/api/suggest-menu/route.ts`：食材リスト→メニュー候補3件。`ingredientCost`・`price` は route.ts で算出。（※現状はプレースホルダ）
+- [ ] 動作確認: テスト用の食材写真1枚で機能①がJSONを返す／確定リストで機能②がメニューJSONを返す。
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+**完了の定義（＝6/20の合格ライン）**: スマホ実機で、値引き商品を撮影 → 食材が出る →（店員が確認）→ AIがメニュー候補3件を返して画面に出る、までが動く。
 
-export async function POST(req: Request) {
-  const { imageBase64, mimeType } = await req.json();
+## Phase 2: モック画面を肉付け（6/20以降）
 
-  const prompt = `あなたは平和堂の総菜開発者です。写真の食材（期限が近い）を主役に、
-学生向けの格安夕食メニュー候補を3つ提案してください。各候補に
-menuName(料理名), ingredients(主な材料の配列), allergens(アレルギー成分の配列),
-price(想定価格 円, 300〜500) を含めてください。`;
+AIコア以外は固定データ＋ボタン遷移で「動いて見える」画面を作る。絵コンテに対応。
 
-  const res = await ai.models.generateContent({
-    model: "gemini-2.5-flash", // 無料枠で使えるvision対応モデル（要確認）
-    contents: [{
-      role: "user",
-      parts: [
-        { text: prompt },
-        { inlineData: { mimeType, data: imageBase64 } },
-      ],
-    }],
-    config: { responseMimeType: "application/json" },
-  });
+- [ ] 店舗側: 食材の撮影/アップロード画面（機能①を呼ぶ）
+- [ ] 店舗側: 食材の確認・修正画面（個数・価格を編集して食材リストを確定 → 機能②へ）
+- [ ] 店舗側: メニュー候補の表示・公開画面（候補から1つ選んで「公開」）
+- [ ] 学生側: 今日のメニュー・残数一覧
+- [ ] 学生側: 席バーコードスキャン → 注文確認
+- [ ] 学生側: HOP風決済完了
+- ダミーデータは `web/src/data/*.ts` 等にまとめ、相手が中身を差し替える担当。
 
-  return Response.json(JSON.parse(res.text));
-}
-```
-> 注: `@google/genai` のAPIは更新されることがあるので、動かないときは公式サンプルで呼び出し形を確認する。モデル名も無料枠で使えるものを最新で確認。
+## Phase 3: 仕上げ・動画（7/4に向けて）
+
+- [ ] Vercel デプロイ（Root Directory を `web/` に設定、`GEMINI_API_KEY` を環境変数に）。
+- [ ] スマホ実機で公開URLを開き、操作する様子を実写撮影。
+- [ ] スマホ幅のレイアウト・配色・ロゴ（HATOBA＝鳩＋波止場の世界観）。
+- [ ] 具体シナリオのダミーデータ確定 → 実写と画面を編集して2分のデモ動画に。
+- [ ] プレゼン資料に動画を組み込む。
 
 ---
 
-## Phase 2: モック画面を肉付け（6/20以降 / 担当: 画面=あなた、データ/文言=相手）
+## 役割分担
 
-AIは絡めず、固定データ＋ボタン遷移で「動いて見える」画面を作る。絵コンテのシーン3〜6に対応。
-
-- [ ] 店舗側: メニュー公開画面（候補から1つ選んで「公開」） `web/src/app/store/publish`
-- [ ] 学生側: 今日のメニュー・残数一覧 `web/src/app/student/menu`
-- [ ] 学生側: 席バーコードスキャン→注文確認 `web/src/app/student/order`
-- [ ] 学生側: HOP風決済完了 `web/src/app/student/pay`
-- データは `web/src/data/*.ts` にダミーで持つ（相手が中身を差し替える担当）
-
----
-
-## Phase 3: 仕上げ・動画録画（7/4に向けて / 担当: 相手主導）
-
-- [ ] スマホ幅でのレイアウト微調整・ロゴ・配色（HATOBA=鳩＋波止場の世界観）
-- [ ] 具体シナリオのダミーデータ確定（鶏もも肉→味噌だれ丼 など）
-- [ ] 実写シーン（食材撮影・受け取り）の撮影
-- [ ] 画面録画＋実写を編集して2分のデモ動画に
-- [ ] プレゼン資料に動画を組み込む
-
----
-
-## 役割分担まとめ
 | | あなた（経験者） | 相手（未経験） |
 |--|--|--|
-| Phase 0 | 主導 | 同じ手順を自分の環境でも踏む（環境構築の練習） |
-| Phase 1 | AIコア実装 | テスト用の食材写真を集める／プロンプト文言を一緒に考える |
+| Phase 0 | 主導 | 同じ手順を自分の環境でも踏む |
+| Phase 1 | AIコア2機能の実装 | テスト用の食材写真を集める／プロンプト文言を一緒に考える（`web/src/prompts/` を編集） |
 | Phase 2 | 画面の実装 | ダミーデータ・画面テキストの作成と差し替え |
-| Phase 3 | 技術的な仕上げ | **撮影・動画編集・プレゼン資料（主担当）** |
+| Phase 3 | デプロイ・技術的な仕上げ | **撮影・動画編集・プレゼン資料（主担当）** |
 
 ## 次の一歩
-1. Phase 0 を二人で実施（Node導入→create-next-app→Geminiキー取得）
-2. 出来たら Phase 1 のAPI Routeを一緒に動かす
+
+1. 機能② `suggest-menu/route.ts` を完成（`loadPromptBody("prompt-menu.md")` ＋ `responseSchema` ＋価格計算）。
+2. 撮影 → 確認 → メニュー表示の最小UIを作る。
+3. Vercel にデプロイしてスマホ実機で疎通確認。

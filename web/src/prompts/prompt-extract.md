@@ -1,0 +1,52 @@
+# 食材抽出プロンプト（機能①：写真 → 食材情報）
+
+`web/src/app/api/extract-ingredients/route.ts` でGeminiに渡すプロンプト。
+写真に写った1つの値引き商品を読み取り、その商品の情報をJSONで返す（撮影は商品1点につき1枚。処理も商品ごとに1回ずつ行う）。
+
+- 出力の形（項目）は route.ts 側の `responseSchema` で固定する。
+- 割引後価格 `discountedPrice` はこのプロンプトでは計算しない。AIは元値と割引率だけ出し、`discountedPrice` は route.ts 側で計算する（後述）。
+- 読み取り結果は、このあとアプリの確認画面で店員が手動で修正できる前提（個数・価格などを編集可能）。AIは「写真から読める範囲をベストエフォートで出す」ことに徹する。
+
+## 入力の形（route.ts が Gemini に渡す）
+- 値引き商品が1つ写った写真（画像）。商品1点につき1枚。
+
+## 出力の形（route.ts の responseSchema で固定する）
+1商品ぶんのオブジェクトを返す:
+- `productName`: 文字列（商品名。一般的な食材名）
+- `originalPrice`: 整数 または null（元値・**税込価格**・円）
+- `discountPercent`: 整数 または null（割引率・%。割引なしは 0）
+- `unit`: 文字列 または null（内容量。例「300g」「4本入」）
+- `quantity`: 整数（パッケージ内の個数。基本は 1）
+
+割引後価格 `discountedPrice` は出力に含めない（下の価格計算のとおり route.ts で算出して付け足す）。
+
+## 価格計算（route.ts 側で実施。AIには計算させない）
+```
+discountedPrice = round(originalPrice * (100 - discountPercent) / 100)
+```
+（originalPrice か discountPercent が null のときの扱い（discountedPrice も null にする等）は route.ts 側で決める）
+
+## プロンプト本文
+
+```text
+アップロードされた写真には、平和堂で値引きされた商品（期限が近い食材）が1つ写っています。
+その商品の情報を読み取ってください。
+
+# 読み取りルール
+- 値札と割引シールの文字をできる範囲で正確に読み取る
+- productName: 商品名。できるだけ一般的な食材名で書く（パッケージ表記が何であれ「鶏もも肉」「キャベツ」など）
+- originalPrice: 値札に書かれた元の価格を「税込価格（円）」で読み取る。本体価格（税抜）と税込価格が併記されている場合は、必ず税込価格の方を採用する（割引はこの税込価格に対して掛ける）
+- discountPercent: 割引率を % の整数で表す（「2割引」「20%OFF」→ 20、「半額」→ 50）。割引がなければ 0
+  ※ 割引後価格そのものは計算しない（システム側で originalPrice と discountPercent から算出する）
+- unit: 内容量の表記（例「300g」「1パック」「4本入」）。読めなければ null
+- quantity: パッケージ内の個数。基本は 1。複数個セット表記があればその数にする（例:「人参4本セット」「3個入り」→ 4 や 3）
+- originalPrice は、この quantity 個・この unit を含む「パッケージ全体」の価格とする
+- 文字が読み取れない・確信が持てない項目は、無理に推測せず null にする
+
+# 出力する項目（この1商品について）
+- productName: 商品名（一般的な食材名）
+- originalPrice: 元値（整数・円 / 不明なら null）
+- discountPercent: 割引率（整数・% / 割引なしは 0 / 不明なら null）
+- unit: 内容量（文字列 / 不明なら null）
+- quantity: 個数（整数）
+```
