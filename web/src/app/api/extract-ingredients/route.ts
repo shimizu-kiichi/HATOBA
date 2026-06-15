@@ -3,6 +3,7 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 import { loadPromptBody } from "@/lib/prompts";
+import type { ExtractedProduct } from "@/lib/types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
@@ -14,17 +15,10 @@ const responseSchema = {
     discountPercent: { type: Type.INTEGER, nullable: true },
     unit: { type: Type.STRING, nullable: true },
     quantity: { type: Type.INTEGER },
+    allergens: { type: Type.ARRAY, items: { type: Type.STRING } }, // 28品目から該当（ラベル表示か商品から推測）
   },
-  required: ["productName", "originalPrice", "discountPercent", "unit", "quantity"],
-  propertyOrdering: ["productName", "originalPrice", "discountPercent", "unit", "quantity"],
-};
-
-type ExtractedProduct = {
-  productName: string;
-  originalPrice: number | null;
-  discountPercent: number | null;
-  unit: string | null;
-  quantity: number;
+  required: ["productName", "originalPrice", "discountPercent", "unit", "quantity", "allergens"],
+  propertyOrdering: ["productName", "originalPrice", "discountPercent", "unit", "quantity", "allergens"],
 };
 
 export async function POST(req: Request) {
