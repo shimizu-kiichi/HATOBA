@@ -11,7 +11,6 @@ interface Ingredient {
   pricePerOne: number;
 }
 
-// AIから返ってくるメニューデータの型定義
 interface SuggestedMenu {
   menuName: string;
   ingredients: { name: string; usageRatio: number }[];
@@ -19,7 +18,7 @@ interface SuggestedMenu {
   allergens: string[];
   prepMinutes: number;
   cookMinutesPerServing: number;
-  price?: number; // API側で計算されて付く想定の価格
+  price?: number;
 }
 
 export default function StorePage() {
@@ -28,9 +27,8 @@ export default function StorePage() {
   const [isManualInputOpen, setIsManualInputOpen] = useState(false);
   const [manualName, setManualName] = useState("");
   
-  // 💡 AI通信中（ローディング）の状態管理
   const [isLoading, setIsLoading] = useState(false);
-  // 💡 AIから返ってきたメニューを保存する状態管理
+  const [loadingText, setLoadingText] = useState("");
   const [suggestedMenus, setSuggestedMenus] = useState<SuggestedMenu[] | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -51,122 +49,173 @@ export default function StorePage() {
     setIngredients(ingredients.filter(item => item.id !== id));
   };
 
-  const handleCameraClick = () => {
-    setIsMenuOpen(false);
-    fileInputRef.current?.click();
+  const handlePhotoClick = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      const testItems = [
-        { name: "トマト", unit: "個", image: "🍅" },
-        { name: "たまねぎ", unit: "個", image: "🧅" },
-        { name: "にんじん", unit: "本", image: "🥕" },
-      ];
-      const nextItem = testItems[ingredients.length % testItems.length];
-      setIngredients([...ingredients, { id: Date.now(), name: nextItem.name, count: 1, unit: nextItem.unit, image: nextItem.image, pricePerOne: 100 }]);
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    
+    setIsMenuOpen(false); 
+    const file = e.target.files[0];
+
+    setLoadingText("写真をAIで解析中...");
+    setIsLoading(true);
+
+    try {
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve) => {
+        reader.onloadend = () => {
+          const base64String = reader.result as string;
+          const justData = base64String.split(",")[1];
+          resolve(justData);
+        };
+      });
+      reader.readAsDataURL(file);
+      const imageBase64 = await base64Promise;
+
+      const response = await fetch("/api/extract-ingredients", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          imageBase64: imageBase64,
+          mimeType: file.type
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.details || data.error || "画像解析に失敗しました");
+      }
+      
+      const productName = data.productName || "不明な食材";
+      const quantity = data.quantity || 1;
+      const unit = data.unit || "個";
+      const finalPrice = data.discountedPrice || 100;
+
+      let emoji = "📦";
+      if (productName.includes("トマト")) emoji = "🍅";
+      else if (productName.includes("たまねぎ") || productName.includes("玉ねぎ")) emoji = "🧅";
+      else if (productName.includes("にんじん") || productName.includes("人参")) emoji = "🥕";
+      else if (productName.includes("肉")) emoji = "🥩";
+      else if (productName.includes("キャベツ")) emoji = "🥬";
+
+      setIngredients(prev => [
+        ...prev,
+        {
+          id: Date.now(),
+          name: productName,
+          count: quantity,
+          unit: unit,
+          image: emoji,
+          pricePerOne: Math.round(finalPrice / quantity)
+        }
+      ]);
+
+    } catch (error) {
+      console.error(error);
+      alert(error instanceof Error ? error.message : "AIの食材認識でエラーが起きました。");
+    } finally {
+      setIsLoading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
   const addManually = (e: React.FormEvent) => {
     e.preventDefault();
     if (!manualName.trim()) return;
-    setIngredients([...ingredients, { id: Date.now(), name: manualName, count: 1, unit: "個", image: "📦", pricePerOne: 100 }]);
+    setIngredients([...ingredients, { id: Date.now(), name: manualName, count: 1, unit: "個", image: "✍️", pricePerOne: 100 }]);
     setManualName("");
     setIsManualInputOpen(false);
   };
 
-  // 💡 【重要】「メニューを作成」ボタンを押したときにAI(route.ts)を呼び出す関数
+  // 💡 最も安全にデータを整えてAIに送信する処理
   const handleCreateMenu = async () => {
     if (ingredients.length === 0) {
       alert("食材を1つ以上登録してください！");
       return;
     }
 
-    setIsLoading(true); // ぐるぐる画面スタート
+    setLoadingText("平和堂のAIシェフが思考中...");
+    setIsLoading(true);
 
     try {
-      // prompt-menu.md の指定項目（productName, discountedPriceなど）に合わせてデータを整形
+      // 念のため不完全なデータが入らないようにお掃除して変換
       const formattedIngredients = ingredients.map(item => ({
-        productName: item.name,
-        discountedPrice: item.pricePerOne * item.count, // 簡易的に現在の総原価を渡す
-        unit: `${item.count}${item.unit}`,
-        quantity: item.count,
-        packCount: 1 // デモ用に在庫数は1に固定
+        productName: item.name || "不明な食材",
+        discountedPrice: (item.pricePerOne || 100) * (item.count || 1),
+        unit: `${item.count || 1}${item.unit || "個"}`,
+        quantity: item.count || 1,
+        packCount: 1
       }));
 
-      // 裏側のAIプログラム（/api/suggest-menu）におねだり通信
       const response = await fetch("/api/suggest-menu", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ingredients: formattedIngredients }),
       });
 
-      if (!response.ok) throw new Error("APIエラーが発生しました");
-
       const data = await response.json();
-      setSuggestedMenus(data.menus || data); // 返ってきたメニューデータを画面に保存
+      if (!response.ok) {
+        throw new Error(data.details || data.error || "メニューの作成に失敗しました");
+      }
+
+      setSuggestedMenus(data.menus || data);
 
     } catch (error) {
       console.error(error);
-      alert("メニューの作成に失敗しました。APIキーやroute.tsの設定を確認してください。");
+      alert(error instanceof Error ? error.message : "メニューの作成に失敗しました。");
     } finally {
-      setIsLoading(false); // ぐるぐる画面終了
+      setIsLoading(false);
     }
   };
 
-  // -------------------------------------------------------------
-  // 🔄 画面パターン①: AIが考えている最中の「ローディング画面」
-  // -------------------------------------------------------------
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#FCFAF5] flex flex-col items-center justify-center font-sans p-6">
+      <div className="fixed inset-0 bg-[#FCFAF5] flex flex-col items-center justify-center font-sans p-6 overflow-hidden">
         <div className="w-16 h-16 border-4 border-[#3B803B] border-t-transparent rounded-full animate-spin"></div>
-        <h2 className="mt-8 text-xl font-bold text-gray-700 animate-pulse">平和堂のAIシェフが思考中...</h2>
+        <h2 className="mt-8 text-xl font-bold text-gray-700 animate-pulse">{loadingText}</h2>
         <p className="mt-2 text-sm text-gray-500 text-center">
-          登録された食材から、<br />大学生向けの最適メニューを考案しています。
+          少し時間がかかる場合があります。<br />このまま少々お待ちください。
         </p>
       </div>
     );
   }
 
-  // -------------------------------------------------------------
-  // 🍳 画面パターン②: AIからメニューが返ってきたあとの「結果画面」
-  // -------------------------------------------------------------
   if (suggestedMenus) {
     return (
-      <div className="min-h-screen bg-[#FCFAF5] flex flex-col items-center pb-32 font-sans text-gray-800 p-4">
-        <h1 className="mt-12 text-2xl font-bold text-center text-[#3B803B]">✨ AIおすすめメニュー ✨</h1>
-        <p className="mt-2 text-sm text-gray-600 text-center mb-8">お好みの惣菜開発メニューを選んでください</p>
+      <div className="fixed inset-0 bg-[#FCFAF5] flex flex-col items-center font-sans text-gray-800 overflow-hidden">
+        <div className="w-full flex flex-col items-center pt-12 flex-shrink-0">
+          <h1 className="text-2xl font-bold text-center text-[#3B803B]">✨ AIおすすめメニュー ✨</h1>
+          <p className="mt-2 text-sm text-gray-600 text-center mb-4">お好みの惣菜開発メニューを選んでください</p>
+        </div>
 
-        <div className="w-full max-w-md flex flex-col gap-6">
+        <div className="w-full max-w-md flex-1 overflow-y-auto px-4 pb-32 flex flex-col gap-6">
           {suggestedMenus.map((menu, index) => (
             <div key={index} className="bg-white rounded-2xl p-6 shadow-md border border-gray-100">
-              {/* メニュー名 */}
               <div className="flex items-center justify-between mb-4">
                 <span className="bg-[#F2F6E8] text-[#3B803B] text-xs font-bold px-3 py-1 rounded-full">候補 {index + 1}</span>
                 <span className="text-sm font-bold text-gray-500">⏰ {menu.prepMinutes + (menu.cookMinutesPerServing || 0)}分</span>
               </div>
               <h2 className="text-xl font-bold text-gray-800 mb-3">{menu.menuName}</h2>
               
-              {/* 想定価格（route.tsで計算されていれば表示、なければ仮表示） */}
               <div className="text-lg font-bold text-orange-600 mb-4">
                 想定提供価格: {menu.price ? `${menu.price}円` : "計算中"}
               </div>
 
-              {/* 使用する食材リスト */}
               <div className="mb-4">
                 <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">使用する食材</h3>
                 <div className="flex flex-wrap gap-2">
                   {menu.ingredients.map((ing, i) => (
                     <span key={i} className="bg-gray-100 text-gray-700 text-xs px-2.5 py-1 rounded-md font-medium">
-                      {ing.name} (量: {ing.usageRatio * 100}%)
+                      {ing.name} (量: {Math.round(ing.usageRatio * 100)}%)
                     </span>
                   ))}
                 </div>
               </div>
 
-              {/* レシピ手順 */}
               <div className="mb-4">
                 <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">調理工程</h3>
                 <ol className="list-decimal list-inside text-sm text-gray-600 space-y-1">
@@ -176,7 +225,6 @@ export default function StorePage() {
                 </ol>
               </div>
 
-              {/* アレルゲン */}
               {menu.allergens && menu.allergens.length > 0 && (
                 <div>
                   <h3 className="text-xs font-bold text-red-400 uppercase tracking-wider mb-1">⚠️ アレルゲン（28品目中）</h3>
@@ -193,8 +241,7 @@ export default function StorePage() {
           ))}
         </div>
 
-        {/* 戻るボタン */}
-        <div className="fixed bottom-8 w-full flex justify-center px-4">
+        <div className="fixed bottom-8 w-full flex justify-center z-30 px-4">
           <button 
             onClick={() => setSuggestedMenus(null)}
             className="w-full max-w-md bg-gray-700 text-white py-4 rounded-full font-bold text-lg shadow-lg hover:bg-gray-800 transition-colors"
@@ -206,35 +253,37 @@ export default function StorePage() {
     );
   }
 
-  // -------------------------------------------------------------
-  // 🏠 画面パターン③: いつもの「食材一覧画面」（初期状態）
-  // -------------------------------------------------------------
   return (
-    <div className="min-h-screen bg-[#FCFAF5] flex flex-col items-center pb-32 font-sans text-gray-800 relative">
-      <input type="file" accept="image/*" capture="environment" ref={fileInputRef} onChange={handleFileChange} className="hidden" />
+    <div className="fixed inset-0 bg-[#FCFAF5] flex flex-col items-center font-sans text-gray-800 overflow-hidden">
+      <input 
+        type="file" 
+        accept="image/*" 
+        ref={fileInputRef} 
+        onChange={handleFileChange} 
+        className="hidden" 
+      />
 
-      {/* --- ヘッダー部分 --- */}
-      <h1 className="mt-16 text-2xl font-bold">食材一覧</h1>
-      <p className="mt-4 text-sm text-gray-600 text-center leading-relaxed">
-        写真から食材を読み取り、<br />一覧に追加できます
-      </p>
+      <div className="w-full flex flex-col items-center pt-12 flex-shrink-0">
+        <h1 className="text-2xl font-bold">食材一覧</h1>
+        <p className="mt-2 text-sm text-gray-600 text-center leading-relaxed">
+          写真や手動入力から食材を読み取り、<br />一覧に追加できます
+        </p>
 
-      {/* --- 食材を追加ボタン --- */}
-      <button 
-        onClick={() => setIsMenuOpen(true)}
-        className="mt-8 w-11/12 max-w-md border-2 border-[#3B803B] text-[#3B803B] bg-white rounded-full py-4 flex items-center justify-center font-bold shadow-sm hover:bg-green-50 active:bg-green-100 transition-colors"
-      >
-        <span className="text-xl text-green-700">＋ 食材を追加</span>
-      </button>
+        <button 
+          onClick={() => setIsMenuOpen(true)}
+          className="mt-6 w-11/12 max-w-md border-2 border-[#3B803B] text-[#3B803B] bg-white rounded-full py-4 flex items-center justify-center font-bold shadow-sm hover:bg-green-50 active:bg-green-100 transition-colors"
+        >
+          <span className="text-xl text-green-700">＋ 食材を追加</span>
+        </button>
+      </div>
 
-      {/* --- 登録済みの食材リスト --- */}
-      <div className="w-11/12 max-w-md mt-12">
-        <h2 className="text-md mb-4 text-gray-700">登録済みの食材</h2>
+      <div className="w-11/12 max-w-md mt-6 mb-32 flex-1 overflow-y-auto pb-4 pr-1">
+        <h2 className="text-md mb-3 text-gray-700 font-bold sticky top-0 bg-[#FCFAF5] py-1 z-10">登録済みの食材</h2>
 
         {ingredients.length > 0 ? (
           <div className="bg-white rounded-xl border border-gray-100 overflow-hidden shadow-sm">
-            <div className="grid grid-cols-[1.2fr_1fr_0.6fr_0.4fr] bg-[#F2F6E8] py-3 px-2 text-sm font-medium text-gray-700">
-              <div className="text-center pl-6">食材名（タップで編集）</div>
+            <div className="grid grid-cols-[1.2fr_1fr_0.6fr_0.4fr] bg-[#F2F6E8] py-3 px-2 text-sm font-medium text-gray-700 sticky top-0 z-10">
+              <div className="text-center pl-6">食材名</div>
               <div className="text-center">数量</div>
               <div className="text-center">原価</div>
               <div className="text-center"></div>
@@ -265,13 +314,12 @@ export default function StorePage() {
         )}
       </div>
 
-      {/* ポップアップメニュー等（省略せず完全な形で維持） */}
       {isMenuOpen && (
-        <div className="fixed inset-0 bg-black/10 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white w-full max-w-sm rounded-2xl p-6 shadow-2xl border border-gray-100">
             <h3 className="text-lg font-bold text-center mb-6">食材の追加方法を選択</h3>
             <div className="flex flex-col gap-3">
-              <button onClick={handleCameraClick} className="bg-[#428542] text-white py-4 rounded-xl font-bold hover:bg-[#326b32] transition-colors shadow-md">📸 カメラで撮影する</button>
+              <button onClick={handlePhotoClick} className="bg-[#428542] text-white py-4 rounded-xl font-bold hover:bg-[#326b32] transition-colors shadow-md">📸 写真から読み込む</button>
               <button onClick={() => { setIsMenuOpen(false); setIsManualInputOpen(true); }} className="bg-white border-2 border-gray-200 text-gray-700 py-4 rounded-xl font-bold hover:bg-gray-50">✍️ 手動で入力する</button>
               <button onClick={() => setIsMenuOpen(false)} className="text-gray-400 font-medium mt-2">キャンセル</button>
             </div>
@@ -280,7 +328,7 @@ export default function StorePage() {
       )}
 
       {isManualInputOpen && (
-        <div className="fixed inset-0 bg-black/10 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <form onSubmit={addManually} className="bg-white w-full max-w-sm rounded-2xl p-6 shadow-2xl border border-gray-100">
             <h3 className="text-lg font-bold text-center mb-4">食材の手動入力</h3>
             <input type="text" placeholder="例: キャベツ、豚肉 など" value={manualName} onChange={(e) => setManualName(e.target.value)} className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-base focus:border-[#3B803B] outline-none mb-6 font-bold" autoFocus />
@@ -292,13 +340,7 @@ export default function StorePage() {
         </div>
       )}
 
-      {/* 背景イラスト */}
-      <div className="fixed bottom-0 w-full h-40 bg-gray-200 opacity-50 z-0 flex items-center justify-center pointer-events-none">
-        <span className="text-gray-500 font-bold">平和堂の背景イラスト</span>
-      </div>
-
-      {/* --- メニューを作成ボタン（API関数を呼び出すように変更） --- */}
-      <div className="fixed bottom-8 w-full flex justify-center z-10 px-4">
+      <div className="fixed bottom-8 w-full flex justify-center z-30 px-4">
         <button 
           onClick={handleCreateMenu}
           className="w-full max-w-md bg-[#428542] text-white py-4 rounded-full font-bold text-lg shadow-lg hover:bg-[#326b32] transition-colors"
