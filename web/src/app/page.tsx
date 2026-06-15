@@ -193,10 +193,44 @@ export default function Home() {
 
       {/* ▼ 仮の結果表示（次回ちゃんとした結果画面に置き換える） */}
       {menus.length > 0 && (
-        <ul className="mt-2 flex flex-col gap-2 border-t pt-2">
+        <ul className="mt-2 flex flex-col gap-3 border-t pt-3">
           {menus.map((m, i) => (
-            <li key={i} className="rounded border p-2 text-sm">
-              <b>{m.menuName}</b> — {m.price}円 / 残り{m.servings}食 / {m.totalCookingMinutes}分
+            <li key={i} className="rounded-xl border border-zinc-200 p-3 text-sm">
+              {/* 料理名と価格 */}
+              <div className="flex items-baseline justify-between gap-2">
+                <b className="text-base">{m.menuName}</b>
+                <span className="shrink-0 font-semibold">{m.price}円</span>
+              </div>
+
+              {/* 食数・調理時間・内訳 */}
+              <p className="mt-1 text-xs text-zinc-500">
+                残り{m.servings}食 / 調理{m.totalCookingMinutes}分（下ごしらえ{m.prepMinutes}分＋1食{m.cookMinutesPerServing}分）
+              </p>
+              <p className="text-xs text-zinc-500">
+                材料費{m.ingredientCost}円・人件費{m.laborCost}円・利益{m.profit}円
+              </p>
+
+              {/* アレルギー */}
+              <p className="mt-2 text-xs">
+                <span className="text-zinc-500">アレルギー：</span>
+                {m.allergens.length > 0 ? m.allergens.join("・") : "なし"}
+              </p>
+
+              {/* 使う食材 */}
+              <p className="text-xs">
+                <span className="text-zinc-500">使う食材：</span>
+                {m.ingredients.map((ing) => ing.name).join("・")}
+              </p>
+
+              {/* レシピ */}
+              <div className="mt-2">
+                <p className="text-xs text-zinc-500">作り方</p>
+                <ol className="mt-1 list-decimal pl-5 text-xs leading-relaxed">
+                  {m.recipe.map((step, j) => (
+                    <li key={j}>{step}</li>
+                  ))}
+                </ol>
+              </div>
             </li>
           ))}
         </ul>
