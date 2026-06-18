@@ -33,7 +33,7 @@ export async function generateStructured<T>(opts: StructuredOptions): Promise<T>
   content.push({ type: "text", text: opts.prompt });
 
   const msg = await anthropic.messages.create({
-    model: opts.model ?? "claude-sonnet-4-6",
+    model: opts.model ?? "claude-opus-4-8",
     max_tokens: 8192,
     // submit ツールだけを定義し、tool_choice で必ず呼ばせる → 出力がスキーマ準拠になる
     tools: [
