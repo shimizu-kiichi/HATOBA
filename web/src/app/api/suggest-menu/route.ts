@@ -3,7 +3,11 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 import { loadPromptBody } from "@/lib/prompts";
+import { generateStructured } from "@/lib/claude";
 import type { InputIngredient, MenuFromAI } from "@/lib/types";
+
+// AI応答に時間がかかるため、Vercelの関数タイムアウトを延長（無料プラン上限60秒）
+export const maxDuration = 60;
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
@@ -35,6 +39,39 @@ const responseSchema = {
   },
 };
 
+// Claude用スキーマ（標準のJSON Schema）。tool useの都合で、配列を menus キーで包む。
+const claudeSchema = {
+  type: "object",
+  properties: {
+    menus: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          menuName: { type: "string" },
+          ingredients: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                name: { type: "string" },
+                usageRatio: { type: "number" },
+              },
+              required: ["name", "usageRatio"],
+            },
+          },
+          recipe: { type: "array", items: { type: "string" } },
+          allergens: { type: "array", items: { type: "string" } },
+          prepMinutes: { type: "integer" },
+          cookMinutesPerServing: { type: "integer" },
+        },
+        required: ["menuName", "ingredients", "recipe", "allergens", "prepMinutes", "cookMinutesPerServing"],
+      },
+    },
+  },
+  required: ["menus"],
+};
+
 export async function POST(req: Request) {
   const { ingredients } = (await req.json()) as { ingredients?: InputIngredient[] };
   if (!Array.isArray(ingredients) || ingredients.length === 0) {
@@ -45,13 +82,19 @@ export async function POST(req: Request) {
   const promptBody = await loadPromptBody("prompt-menu.md");
   const prompt = `${promptBody}\n\n${JSON.stringify(ingredients, null, 2)}`;
 
-  const res = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-    config: { responseMimeType: "application/json", responseSchema },
-  });
-
-  const menus = JSON.parse(res.text ?? "[]") as MenuFromAI[];
+  // AI_PROVIDER=claude のときだけ Claude、それ以外（未設定含む）は従来どおり Gemini
+  let menus: MenuFromAI[];
+  if (process.env.AI_PROVIDER === "claude") {
+    const out = await generateStructured<{ menus: MenuFromAI[] }>({ prompt, schema: claudeSchema });
+    menus = out.menus;
+  } else {
+    const res = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      config: { responseMimeType: "application/json", responseSchema },
+    });
+    menus = JSON.parse(res.text ?? "[]") as MenuFromAI[];
+  }
 
   // 食数・金額はAIに計算させず、ここで算出する（食材名で割引後価格・在庫点数を引く）
   const priceByName = new Map<string, number>();
