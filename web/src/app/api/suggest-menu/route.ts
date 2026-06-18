@@ -40,37 +40,46 @@ const responseSchema = {
 };
 
 // Claude用スキーマ（標準のJSON Schema）。tool useの都合で、配列を menus キーで包む。
-const claudeSchema = {
-  type: "object",
-  properties: {
-    menus: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          menuName: { type: "string" },
-          ingredients: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                name: { type: "string" },
-                usageRatio: { type: "number" },
+// name は入力食材名の enum に制限する → Claudeが名前を言い換えたり入力外の食材を捏造するのを防ぐ
+// （価格計算が food名の完全一致で割引価格を引くため、名前のブレは材料費0円の原因になる）
+function buildClaudeSchema(productNames: string[]) {
+  return {
+    type: "object",
+    properties: {
+      menus: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            menuName: { type: "string" },
+            ingredients: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  name: {
+                    type: "string",
+                    enum: productNames,
+                    description:
+                      "使うリスト食材の名前。必ず入力リストの productName のいずれかを一字一句そのままコピーすること。リストに無い食材を新たに作り出してはならない。",
+                  },
+                  usageRatio: { type: "number" },
+                },
+                required: ["name", "usageRatio"],
               },
-              required: ["name", "usageRatio"],
             },
+            recipe: { type: "array", items: { type: "string" } },
+            allergens: { type: "array", items: { type: "string" } },
+            prepMinutes: { type: "integer" },
+            cookMinutesPerServing: { type: "integer" },
           },
-          recipe: { type: "array", items: { type: "string" } },
-          allergens: { type: "array", items: { type: "string" } },
-          prepMinutes: { type: "integer" },
-          cookMinutesPerServing: { type: "integer" },
+          required: ["menuName", "ingredients", "recipe", "allergens", "prepMinutes", "cookMinutesPerServing"],
         },
-        required: ["menuName", "ingredients", "recipe", "allergens", "prepMinutes", "cookMinutesPerServing"],
       },
     },
-  },
-  required: ["menus"],
-};
+    required: ["menus"],
+  };
+}
 
 export async function POST(req: Request) {
   const { ingredients } = (await req.json()) as { ingredients?: InputIngredient[] };
@@ -85,6 +94,7 @@ export async function POST(req: Request) {
   // AI_PROVIDER=claude のときだけ Claude、それ以外（未設定含む）は従来どおり Gemini
   let menus: MenuFromAI[];
   if (process.env.AI_PROVIDER === "claude") {
+    const claudeSchema = buildClaudeSchema(ingredients.map((ing) => ing.productName));
     const out = await generateStructured<{ menus: MenuFromAI[] }>({ prompt, schema: claudeSchema });
     menus = out.menus;
   } else {
@@ -97,24 +107,27 @@ export async function POST(req: Request) {
   }
 
   // 食数・金額はAIに計算させず、ここで算出する（食材名で割引後価格・在庫点数を引く）
+  // 食材名は NFC で正規化して照合する（日本語は見た目同じでも NFC/NFD で文字コードが異なり、
+  // AIが返した名前と入力名が一致せず材料費0円になることがあるため）。
+  const norm = (s: string) => s.normalize("NFC");
   const priceByName = new Map<string, number>();
   const packCountByName = new Map<string, number>();
   for (const ing of ingredients) {
-    if (ing.discountedPrice !== null) priceByName.set(ing.productName, ing.discountedPrice);
-    packCountByName.set(ing.productName, ing.packCount);
+    if (ing.discountedPrice !== null) priceByName.set(norm(ing.productName), ing.discountedPrice);
+    packCountByName.set(norm(ing.productName), ing.packCount);
   }
 
   const result = menus.map((menu) => {
     // 1食ぶんの材料費（割引後価格 × 使用割合）
     const ingredientCost = menu.ingredients.reduce((sum, item) => {
-      const unitPrice = priceByName.get(item.name) ?? 0; // リストに無ければ0扱い
+      const unitPrice = priceByName.get(norm(item.name)) ?? 0; // リストに無ければ0扱い
       return sum + Math.round(unitPrice * item.usageRatio);
     }, 0);
 
     // 在庫全体で何食作れるか（使うリスト食材のボトルネックで決まる）
     const servingsPerIngredient = menu.ingredients
-      .filter((item) => item.usageRatio > 0 && packCountByName.has(item.name))
-      .map((item) => Math.floor((packCountByName.get(item.name) ?? 0) / item.usageRatio));
+      .filter((item) => item.usageRatio > 0 && packCountByName.has(norm(item.name)))
+      .map((item) => Math.floor((packCountByName.get(norm(item.name)) ?? 0) / item.usageRatio));
     const servings =
       servingsPerIngredient.length > 0 ? Math.max(1, Math.min(...servingsPerIngredient)) : 1;
 
