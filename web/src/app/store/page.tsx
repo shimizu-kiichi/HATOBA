@@ -81,11 +81,12 @@ export default function Home() {
   }
 
   return (
+    <div className="min-h-screen w-full bg-[#FCFAF5] text-gray-800">
     <main className="mx-auto flex w-full max-w-md flex-col gap-4 p-4">
-      <h1 className="text-xl font-bold">食材を登録</h1>
+      <h1 className="pt-2 text-center text-2xl font-bold text-[#3B803B]">食材を登録</h1>
 
       {/* カメラ/アップロード（capture でスマホは背面カメラが開く） */}
-      <label className="flex cursor-pointer items-center justify-center rounded-xl bg-teal-600 px-4 py-3 font-semibold text-white">
+      <label className="flex cursor-pointer items-center justify-center rounded-full border-2 border-[#3B803B] bg-white px-4 py-4 font-bold text-[#3B803B] shadow-sm transition-colors hover:bg-green-50 active:bg-green-100">
         {analyzing ? "読み取り中…" : "＋ 値引き商品を撮影／選択"}
         <input
           type="file"
@@ -97,20 +98,20 @@ export default function Home() {
         />
       </label>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
 
       {/* 登録済みの食材リスト */}
       <ul className="flex flex-col gap-3">
         {rows.map((row, i) => (
-          <li key={i} className="rounded-xl border border-zinc-200 p-3">
+          <li key={i} className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between gap-2">
               <input
-                className="min-w-0 flex-1 rounded border px-2 py-1 font-medium"
+                className="min-w-0 flex-1 rounded-lg border border-gray-200 px-3 py-2 font-bold outline-none focus:border-[#3B803B] focus:bg-gray-50"
                 value={row.productName}
                 onChange={(e) => updateRow(i, { productName: e.target.value })}
               />
               <button
-                className="shrink-0 text-sm text-red-500"
+                className="shrink-0 rounded-lg px-2 py-1 text-sm text-red-500 hover:bg-red-50"
                 onClick={() => removeRow(i)}
               >
                 削除
@@ -122,7 +123,7 @@ export default function Home() {
                 価格
                 <input
                   type="number"
-                  className="w-20 rounded border px-2 py-1"
+                  className="w-20 rounded-lg border border-gray-200 px-2 py-1 outline-none focus:border-[#3B803B]"
                   value={row.discountedPrice ?? ""}
                   onChange={(e) =>
                     updateRow(i, {
@@ -137,14 +138,14 @@ export default function Home() {
               <div className="flex items-center gap-1">
                 在庫
                 <button
-                  className="h-7 w-7 rounded border"
+                  className="h-7 w-7 rounded-full border border-gray-300 bg-gray-50 font-bold text-gray-600 hover:bg-gray-100"
                   onClick={() => updateRow(i, { packCount: Math.max(1, row.packCount - 1) })}
                 >
                   −
                 </button>
-                <span className="w-6 text-center">{row.packCount}</span>
+                <span className="w-8 text-center font-bold text-gray-700">{row.packCount}</span>
                 <button
-                  className="h-7 w-7 rounded border"
+                  className="h-7 w-7 rounded-full border border-gray-300 bg-gray-50 font-bold text-gray-600 hover:bg-gray-100"
                   onClick={() => updateRow(i, { packCount: row.packCount + 1 })}
                 >
                   ＋
@@ -169,7 +170,7 @@ export default function Home() {
                         })
                       }
                       className={`rounded-full px-2 py-0.5 text-xs ${
-                        on ? "bg-teal-600 text-white" : "bg-zinc-100 text-zinc-600"
+                        on ? "bg-[#3B803B] text-white" : "bg-zinc-100 text-zinc-600"
                       }`}
                     >
                       {a}
@@ -184,7 +185,7 @@ export default function Home() {
 
       {/* メニュー提案ボタン（食材0件のときは押せない） */}
       <button
-        className="rounded-xl bg-zinc-900 px-4 py-3 font-semibold text-white disabled:opacity-40"
+        className="rounded-full bg-[#428542] px-4 py-4 text-lg font-bold text-white shadow-lg transition-colors hover:bg-[#326b32] disabled:opacity-40"
         disabled={rows.length === 0 || suggesting}
         onClick={suggest}
       >
@@ -193,13 +194,13 @@ export default function Home() {
 
       {/* ▼ 仮の結果表示（次回ちゃんとした結果画面に置き換える） */}
       {menus.length > 0 && (
-        <ul className="mt-2 flex flex-col gap-3 border-t pt-3">
+        <ul className="mt-2 flex flex-col gap-4 border-t pt-4">
           {menus.map((m, i) => (
-            <li key={i} className="rounded-xl border border-zinc-200 p-3 text-sm">
+            <li key={i} className="rounded-2xl border border-gray-100 bg-white p-5 text-sm shadow-md">
               {/* 料理名と価格 */}
               <div className="flex items-baseline justify-between gap-2">
-                <b className="text-base">{m.menuName}</b>
-                <span className="shrink-0 font-semibold">{m.price}円</span>
+                <b className="text-lg text-gray-800">{m.menuName}</b>
+                <span className="shrink-0 font-bold text-orange-600">{m.price}円</span>
               </div>
 
               {/* 食数・調理時間・内訳 */}
@@ -236,6 +237,7 @@ export default function Home() {
         </ul>
       )}
     </main>
+    </div>
   );
 }
 
