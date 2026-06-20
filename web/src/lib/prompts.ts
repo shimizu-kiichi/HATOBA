@@ -10,7 +10,8 @@ const promptsDir = path.join(process.cwd(), "src", "prompts");
 // 例: loadPromptBody("prompt-extract.md")
 export async function loadPromptBody(fileName: string): Promise<string> {
   const md = await readFile(path.join(promptsDir, fileName), "utf-8");
-  const match = md.match(/```text\n([\s\S]*?)\n```/);
+  // 改行は CRLF/LF どちらでもマッチさせる（Windows の autocrlf 対策）
+  const match = md.match(/```text\r?\n([\s\S]*?)\r?\n```/);
   if (!match) {
     throw new Error(`プロンプト本文(\`\`\`text ブロック)が見つかりません: ${fileName}`);
   }
