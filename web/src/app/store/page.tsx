@@ -20,6 +20,8 @@ export default function Home() {
   const [suggesting, setSuggesting] = useState(false); // メニュー提案中
   const [menus, setMenus] = useState<Menu[]>([]); // 仮表示用
   const [error, setError] = useState<string | null>(null);
+  const [publishingIndex, setPublishingIndex] = useState<number | null>(null); // 公開処理中の候補index
+  const [publishedName, setPublishedName] = useState<string | null>(null); // 公開できたメニュー名
 
   // 写真を選ぶ → base64化 → 機能① → 行を追加
   async function handlePhoto(e: React.ChangeEvent<HTMLInputElement>) {
@@ -77,6 +79,25 @@ export default function Home() {
       setError(err instanceof Error ? err.message : "エラーが発生しました");
     } finally {
       setSuggesting(false);
+    }
+  }
+
+  // 候補から1つを選んで「公開」→ サーバーで画像生成＆メモリ保存。客側画面に反映される。
+  async function publish(menu: Menu, index: number) {
+    setPublishingIndex(index);
+    setError(null);
+    try {
+      const res = await fetch("/api/published-menu", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ menu }),
+      });
+      if (!res.ok) throw new Error("メニューの公開に失敗しました");
+      setPublishedName(menu.menuName);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "エラーが発生しました");
+    } finally {
+      setPublishingIndex(null);
     }
   }
 
@@ -232,9 +253,35 @@ export default function Home() {
                   ))}
                 </ol>
               </div>
+
+              {/* このメニューに決定 → 客側画面に公開（公開後はボタンを消す） */}
+              {!publishedName && (
+                <button
+                  className="mt-4 w-full rounded-full bg-[#428542] px-4 py-3 text-sm font-bold text-white shadow-sm transition-colors hover:bg-[#326b32] disabled:opacity-40"
+                  disabled={publishingIndex !== null}
+                  onClick={() => publish(m, i)}
+                >
+                  {publishingIndex === i ? "公開中…（画像を生成しています）" : "このメニューに決定して公開"}
+                </button>
+              )}
             </li>
           ))}
         </ul>
+      )}
+
+      {/* 公開後の状態：通知＋「公開メニューを変更」ボタン（押すと選び直せる） */}
+      {publishedName && (
+        <div className="flex flex-col gap-3 rounded-2xl border border-[#3B803B]/30 bg-green-50 p-4 shadow-sm">
+          <p className="text-sm font-bold text-[#3B803B]">
+            「{publishedName}」を客側画面に公開しました。
+          </p>
+          <button
+            className="w-full rounded-full border-2 border-[#3B803B] bg-white px-4 py-3 text-sm font-bold text-[#3B803B] transition-colors hover:bg-green-50"
+            onClick={() => setPublishedName(null)}
+          >
+            公開メニューを変更
+          </button>
+        </div>
       )}
     </main>
     </div>
