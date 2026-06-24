@@ -22,6 +22,8 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [publishingIndex, setPublishingIndex] = useState<number | null>(null); // 公開処理中の候補index
   const [publishedName, setPublishedName] = useState<string | null>(null); // 公開できたメニュー名
+  const [uploadingPhoto, setUploadingPhoto] = useState(false); // 実写アップロード中
+  const [photoReplaced, setPhotoReplaced] = useState(false); // 実写に差し替え済み
 
   // 写真を選ぶ → base64化 → 機能① → 行を追加
   async function handlePhoto(e: React.ChangeEvent<HTMLInputElement>) {
@@ -94,10 +96,36 @@ export default function Home() {
       });
       if (!res.ok) throw new Error("メニューの公開に失敗しました");
       setPublishedName(menu.menuName);
+      setPhotoReplaced(false); // 新規公開はAI画像から始まる
     } catch (err) {
       setError(err instanceof Error ? err.message : "エラーが発生しました");
     } finally {
       setPublishingIndex(null);
+    }
+  }
+
+  // 料理完成後：実写の写真を選ぶ → data URL化 → PATCHで差し替え（客側の「※イメージ画像」が消える）
+  async function replacePhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // 同じ写真でも再度選べるようにクリア
+    if (!file) return;
+
+    setUploadingPhoto(true);
+    setError(null);
+    try {
+      const { base64, mimeType } = await fileToBase64(file);
+      const dataUrl = `data:${mimeType};base64,${base64}`;
+      const res = await fetch("/api/published-menu", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: dataUrl }),
+      });
+      if (!res.ok) throw new Error("写真の差し替えに失敗しました");
+      setPhotoReplaced(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "エラーが発生しました");
+    } finally {
+      setUploadingPhoto(false);
     }
   }
 
@@ -275,9 +303,32 @@ export default function Home() {
           <p className="text-sm font-bold text-[#3B803B]">
             「{publishedName}」を客側画面に公開しました。
           </p>
+
+          {/* 料理完成後：実写を撮影/選択して差し替え。差し替えると客側のAI注意書きが消える。 */}
+          {photoReplaced ? (
+            <p className="rounded-lg bg-white px-3 py-2 text-sm font-bold text-[#3B803B]">
+              ✓ 料理写真に差し替えました（客側の「イメージ画像」表示は消えています）
+            </p>
+          ) : (
+            <label className="flex cursor-pointer items-center justify-center rounded-full bg-[#428542] px-4 py-3 text-sm font-bold text-white shadow-sm transition-colors hover:bg-[#326b32]">
+              {uploadingPhoto ? "アップロード中…" : "料理が完成したら写真を差し替える"}
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={replacePhoto}
+                disabled={uploadingPhoto}
+              />
+            </label>
+          )}
+
           <button
             className="w-full rounded-full border-2 border-[#3B803B] bg-white px-4 py-3 text-sm font-bold text-[#3B803B] transition-colors hover:bg-green-50"
-            onClick={() => setPublishedName(null)}
+            onClick={() => {
+              setPublishedName(null);
+              setPhotoReplaced(false);
+            }}
           >
             公開メニューを変更
           </button>

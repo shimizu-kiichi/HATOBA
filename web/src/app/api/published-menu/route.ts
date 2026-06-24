@@ -4,7 +4,12 @@
 //  GET  … メモリの「現在の1件」を返す（客側が表示に使う）
 
 import type { Menu } from "@/lib/types";
-import { getCurrentMenu, setCurrentMenu, type PublishedMenu } from "@/lib/menuStore";
+import {
+  getCurrentMenu,
+  setCurrentMenu,
+  replacePhoto,
+  type PublishedMenu,
+} from "@/lib/menuStore";
 
 // 画風を毎回そろえるための共通スタイル指定（全メニュー共通で末尾に付ける）。
 const STYLE_SUFFIX =
@@ -75,6 +80,28 @@ export async function POST(req: Request) {
   setCurrentMenu(published);
 
   return Response.json(published);
+}
+
+// 料理完成後の実写差し替え。店から画像(base64データURL)を受け取り、
+// 現在公開中の1件の画像を上書きして isReal=true にする（客側の「※イメージ画像」が消える）。
+export async function PATCH(req: Request) {
+  const { image } = (await req.json()) as { image?: string };
+  if (!image || !image.startsWith("data:image/")) {
+    return Response.json(
+      { error: "image（実写の画像データURL）が必要です" },
+      { status: 400 },
+    );
+  }
+
+  const ok = replacePhoto(image);
+  if (!ok) {
+    return Response.json(
+      { error: "公開中のメニューがありません。先に公開してください" },
+      { status: 409 },
+    );
+  }
+
+  return Response.json(getCurrentMenu());
 }
 
 export async function GET() {
