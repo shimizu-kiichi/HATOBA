@@ -20,6 +20,10 @@ export default function Home() {
   const [suggesting, setSuggesting] = useState(false); // メニュー提案中
   const [menus, setMenus] = useState<Menu[]>([]); // 仮表示用
   const [error, setError] = useState<string | null>(null);
+  const [publishingIndex, setPublishingIndex] = useState<number | null>(null); // 公開処理中の候補index
+  const [publishedName, setPublishedName] = useState<string | null>(null); // 公開できたメニュー名
+  const [uploadingPhoto, setUploadingPhoto] = useState(false); // 実写アップロード中
+  const [photoReplaced, setPhotoReplaced] = useState(false); // 実写に差し替え済み
 
   // 写真を選ぶ → base64化 → 機能① → 行を追加
   async function handlePhoto(e: React.ChangeEvent<HTMLInputElement>) {
@@ -77,6 +81,51 @@ export default function Home() {
       setError(err instanceof Error ? err.message : "エラーが発生しました");
     } finally {
       setSuggesting(false);
+    }
+  }
+
+  // 候補から1つを選んで「公開」→ サーバーで画像生成＆メモリ保存。客側画面に反映される。
+  async function publish(menu: Menu, index: number) {
+    setPublishingIndex(index);
+    setError(null);
+    try {
+      const res = await fetch("/api/published-menu", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ menu }),
+      });
+      if (!res.ok) throw new Error("メニューの公開に失敗しました");
+      setPublishedName(menu.menuName);
+      setPhotoReplaced(false); // 新規公開はAI画像から始まる
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "エラーが発生しました");
+    } finally {
+      setPublishingIndex(null);
+    }
+  }
+
+  // 料理完成後：実写の写真を選ぶ → data URL化 → PATCHで差し替え（客側の「※イメージ画像」が消える）
+  async function replacePhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // 同じ写真でも再度選べるようにクリア
+    if (!file) return;
+
+    setUploadingPhoto(true);
+    setError(null);
+    try {
+      const { base64, mimeType } = await fileToBase64(file);
+      const dataUrl = `data:${mimeType};base64,${base64}`;
+      const res = await fetch("/api/published-menu", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: dataUrl }),
+      });
+      if (!res.ok) throw new Error("写真の差し替えに失敗しました");
+      setPhotoReplaced(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "エラーが発生しました");
+    } finally {
+      setUploadingPhoto(false);
     }
   }
 
@@ -232,9 +281,48 @@ export default function Home() {
                   ))}
                 </ol>
               </div>
+
+              {/* このメニューに決定 → 客側画面に公開（公開後はボタンを消す） */}
+              {!publishedName && (
+                <button
+                  className="mt-4 w-full rounded-full bg-[#428542] px-4 py-3 text-sm font-bold text-white shadow-sm transition-colors hover:bg-[#326b32] disabled:opacity-40"
+                  disabled={publishingIndex !== null}
+                  onClick={() => publish(m, i)}
+                >
+                  {publishingIndex === i ? "公開中…（画像を生成しています）" : "このメニューに決定して公開"}
+                </button>
+              )}
             </li>
           ))}
         </ul>
+      )}
+
+      {/* 公開後の状態：通知＋料理完成後の実写差し替え */}
+      {publishedName && (
+        <div className="flex flex-col gap-3 rounded-2xl border border-[#3B803B]/30 bg-green-50 p-4 shadow-sm">
+          <p className="text-sm font-bold text-[#3B803B]">
+            「{publishedName}」を客側画面に公開しました。
+          </p>
+
+          {/* 料理完成後：実写を撮影/選択して差し替え。差し替えると客側のAI注意書きが消える。 */}
+          {photoReplaced ? (
+            <p className="rounded-lg bg-white px-3 py-2 text-sm font-bold text-[#3B803B]">
+              ✓ 料理写真に差し替えました（客側の「イメージ画像」表示は消えています）
+            </p>
+          ) : (
+            <label className="flex cursor-pointer items-center justify-center rounded-full bg-[#428542] px-4 py-3 text-sm font-bold text-white shadow-sm transition-colors hover:bg-[#326b32]">
+              {uploadingPhoto ? "アップロード中…" : "料理が完成したら写真を差し替える"}
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={replacePhoto}
+                disabled={uploadingPhoto}
+              />
+            </label>
+          )}
+        </div>
       )}
     </main>
     </div>
