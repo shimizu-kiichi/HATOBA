@@ -11,6 +11,10 @@ import {
   type PublishedMenu,
 } from "@/lib/menuStore";
 
+// 画像生成(Pollinations)に最大60秒待つため、関数の実行時間上限を延長（無料プラン上限60秒）。
+// これが効かない環境ではPOSTがタイムアウトし得るので、画像生成のタイムアウト(60s)と揃える。
+export const maxDuration = 60;
+
 // 画風を毎回そろえるための共通スタイル指定（全メニュー共通で末尾に付ける）。
 const STYLE_SUFFIX =
   "food photography, overhead 45-degree angle, served in a single bowl or plate on a wooden table, " +

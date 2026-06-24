@@ -297,7 +297,7 @@ export default function Home() {
         </ul>
       )}
 
-      {/* 公開後の状態：通知＋「公開メニューを変更」ボタン（押すと選び直せる） */}
+      {/* 公開後の状態：通知＋料理完成後の実写差し替え */}
       {publishedName && (
         <div className="flex flex-col gap-3 rounded-2xl border border-[#3B803B]/30 bg-green-50 p-4 shadow-sm">
           <p className="text-sm font-bold text-[#3B803B]">
@@ -322,16 +322,6 @@ export default function Home() {
               />
             </label>
           )}
-
-          <button
-            className="w-full rounded-full border-2 border-[#3B803B] bg-white px-4 py-3 text-sm font-bold text-[#3B803B] transition-colors hover:bg-green-50"
-            onClick={() => {
-              setPublishedName(null);
-              setPhotoReplaced(false);
-            }}
-          >
-            公開メニューを変更
-          </button>
         </div>
       )}
     </main>

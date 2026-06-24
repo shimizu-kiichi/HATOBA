@@ -2,14 +2,8 @@
 
 import Image from "next/image";
 import { useEffect, useState } from "react";
-import type { Menu } from "@/lib/types";
-
-// 客側が表示する「公開中の1件」。サーバー(/api/published-menu)から取得する。
-type PublishedMenu = Menu & {
-  image: string | null; // AI生成 or 実写の base64 データURL。未生成なら null
-  isReal: boolean; // false = AI生成イメージ（注意書きを出す）, true = 実写
-  remaining: number;
-};
+// 公開中メニューの型はサーバー側(menuStore)の正本を共有する（型の二重定義・乖離を防ぐ）。
+import type { PublishedMenu } from "@/lib/menuStore";
 
 export default function CustomerPage() {
   const [menu, setMenu] = useState<PublishedMenu | null>(null);
