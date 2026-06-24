@@ -1,4 +1,44 @@
 @import "tailwindcss";
+@plugin "daisyui";
+
+/* HATOBA ブランドテーマ（ロゴ準拠：セージグリーン × クリーム × 線画チャコール） */
+@plugin "daisyui/theme" {
+  name: "hatoba";
+  default: true;
+  prefersdark: false;
+  color-scheme: light;
+
+  --color-base-100: #faf8f2; /* クリーム（紙の地） */
+  --color-base-200: #f1ede2;
+  --color-base-300: #e4ddcc;
+  --color-base-content: #2c2b27; /* 線画のチャコール */
+
+  --color-primary: #6e8f74; /* セージグリーン */
+  --color-primary-content: #f8faf6;
+  --color-secondary: #b9cdb2; /* 淡いセージ */
+  --color-secondary-content: #2c2b27;
+  --color-accent: #c58a5a; /* 暖色アクセント（限定感などに） */
+  --color-accent-content: #fff8f1;
+  --color-neutral: #34332e;
+  --color-neutral-content: #f1ede2;
+
+  --color-info: #6c8fa3;
+  --color-info-content: #ffffff;
+  --color-success: #6e8f74;
+  --color-success-content: #ffffff;
+  --color-warning: #d9a441;
+  --color-warning-content: #2c2b27;
+  --color-error: #c1583f;
+  --color-error-content: #ffffff;
+
+  /* 線画ロゴに合わせて、丸みは控えめ・枠線は細く・影は薄く */
+  --radius-selector: 0.5rem;
+  --radius-field: 0.5rem;
+  --radius-box: 1.25rem;
+  --border: 1px;
+  --depth: 0;
+  --noise: 0;
+}
 
 :root {
   --background: #ffffff;
