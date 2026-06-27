@@ -16,20 +16,25 @@ import {
 export const maxDuration = 60;
 
 // 画風を毎回そろえるための共通スタイル指定（全メニュー共通で末尾に付ける）。
+// 構図は固定し過ぎず、料理に応じて盛り付け・器が変わる余地を残す（似た画像ばかりになるのを防ぐ）。
 const STYLE_SUFFIX =
-  "food photography, overhead 45-degree angle, served in a single bowl or plate on a wooden table, " +
-  "soft natural daylight, shallow depth of field, appetizing, high detail, no text, no watermark.";
+  "Professional food photography, freshly served and steaming hot, garnished, vivid appetizing colors, " +
+  "soft natural window light, shallow depth of field, 50mm lens, photorealistic textures, high resolution, " +
+  "no text, no watermark, no hands, no utensils in frame.";
 
 // 料理名・主な食材・調理法から、写真風の画像生成プロンプトを組み立てる。
 function buildImagePrompt(menu: Menu): string {
   const ingredients = menu.ingredients.map((i) => i.name).join(", ");
-  const firstStep = menu.recipe[0] ?? "";
+  const steps = menu.recipe.slice(0, 2).join(" ");
   return [
-    `A realistic, appetizing food photograph of a Japanese home-style dish: "${menu.menuName}".`,
-    `Main ingredients: ${ingredients}.`,
-    `Cooking style hint: ${firstStep}`,
+    `An appetizing, photorealistic photograph of a Japanese home-style dish called "${menu.menuName}",`,
+    `served in tableware that suits the dish, plated for a casual eatery.`,
+    `Main ingredients visible: ${ingredients}.`,
+    steps ? `How it is prepared: ${steps}` : "",
     STYLE_SUFFIX,
-  ].join(" ");
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 // 料理名から安定した整数seedを作る（同じメニューは毎回同じ画像になる）。
@@ -42,16 +47,17 @@ function seedFromName(name: string): number {
 }
 
 // 画像を1枚生成し、data URL（base64）で返す。失敗時は null。
-// 生成は Pollinations.ai（リンク型・キー登録も課金も不要の無料サービス）を使う。
-// モデルは sana に固定し、画風と再現性をそろえる。
+// 生成は Pollinations.ai（リンク型・キー登録も課金も不要の無料サービス）。匿名枠の sana を使う。
+// enhance=true でプロンプトをLLMが具体化し、質と多様性を上げる（無料・追加コストなし）。
+// seedOverride を渡すと別構図を引き直せる（店舗側の「別の画像で再生成」用）。
 // URL を叩くと画像が直接返るので、サーバー側で fetch して base64 に変換する。
-async function generateImage(menu: Menu): Promise<string | null> {
+async function generateImage(menu: Menu, seedOverride?: number): Promise<string | null> {
   try {
     const prompt = buildImagePrompt(menu);
-    const seed = seedFromName(menu.menuName);
-    const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(
-      prompt,
-    )}?width=1024&height=768&nologo=true&model=sana&seed=${seed}`;
+    const seed = seedOverride ?? seedFromName(menu.menuName);
+    const url =
+      `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}` +
+      `?width=1024&height=768&nologo=true&enhance=true&model=sana&seed=${seed}`;
     const res = await fetch(url, { signal: AbortSignal.timeout(60000) });
     if (!res.ok) throw new Error(`Pollinations ${res.status}`);
     const buf = Buffer.from(await res.arrayBuffer());
@@ -65,13 +71,13 @@ async function generateImage(menu: Menu): Promise<string | null> {
 }
 
 export async function POST(req: Request) {
-  const { menu } = (await req.json()) as { menu?: Menu };
+  const { menu, seed } = (await req.json()) as { menu?: Menu; seed?: number };
   if (!menu || !menu.menuName) {
     return Response.json({ error: "menu（公開するメニュー）が必要です" }, { status: 400 });
   }
 
-  // 完成予想の画像を1回だけ生成（公開時のみ）。
-  const image = await generateImage(menu);
+  // 完成予想の画像を生成。seed が来たら別構図を引き直す（店舗側の「別の画像で再生成」）。
+  const image = await generateImage(menu, typeof seed === "number" ? seed : undefined);
 
   // メモリの「現在の1件」を丸ごと上書き。
   const published: PublishedMenu = {
