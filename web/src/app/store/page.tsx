@@ -391,14 +391,7 @@ export default function StorePage() {
                     AIが提案中…
                   </>
                 ) : (
-                  <>
-                    メニューを提案する
-                    {rows.length > 0 && (
-                      <span className="rounded-full bg-primary-content/20 px-2 py-0.5 text-sm">
-                        {rows.length}品
-                      </span>
-                    )}
-                  </>
+                  "メニューを提案する"
                 )}
               </button>
             </div>
